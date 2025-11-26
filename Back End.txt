@@ -1,7 +1,6 @@
 # protein_workbench_backend.py
-# Pure Python backend translation of the Protein Feature Workbench JS logic.
+# Pure Python backend translation of the Protein.
 # Drop into Google Colab or any Python environment and run.
-# Author: translated from user's HTML/JS (keeps algorithms and heuristics identical).
 
 import re
 import math
@@ -662,3 +661,4 @@ QTSVDVFYVPKFEAAVRTFTREAGSEVSELTDSFRQKYETAVREMESIRRLLMELQSLARQYEEHVRSMN
     # print first 10 features
     for f in analyzed["features"][:10]:
         print(f" - {f['name']} [{f['category']}] {f['start']+1}..{f['end']+1} match={f.get('match')}")
+
