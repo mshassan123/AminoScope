@@ -1,0 +1,664 @@
+# protein_workbench_backend.py
+# Pure Python backend translation of the Protein Feature Workbench JS logic.
+# Drop into Google Colab or any Python environment and run.
+# Author: translated from user's HTML/JS (keeps algorithms and heuristics identical).
+
+import re
+import math
+from typing import List, Dict, Tuple, Any
+
+# ---------------------------
+# Scientific constants (AA)
+# ---------------------------
+AA = {
+    "mw": {
+        "A":71.0788,"R":156.1875,"N":114.1038,"D":115.0886,"C":103.1388,"Q":128.1307,"E":129.1155,"G":57.0519,
+        "H":137.1411,"I":113.1594,"L":113.1594,"K":128.1741,"M":131.1926,"F":147.1766,"P":97.1167,"S":87.0782,
+        "T":101.1051,"W":186.2132,"Y":163.1760,"V":99.1326,"U":150.0388,"O":237.3018,"B":114.5962,"Z":128.6231,
+        "J":113.1594,"X":110.0
+    },
+    "ext": {"Y":1490, "W":5500, "CYS_DISULFIDE_PAIR":125},
+    "kd": {
+        "A":1.8,"R":-4.5,"N":-3.5,"D":-3.5,"C":2.5,"Q":-3.5,"E":-3.5,"G":-0.4,"H":-3.2,"I":4.5,"L":3.8,"K":-3.9,
+        "M":1.9,"F":2.8,"P":-1.6,"S":-0.8,"T":-0.7,"W":-0.9,"Y":-1.3,"V":4.2,"U":0.0,"O":0.0,"B":-3.5,"Z":-3.5,"J":3.8,"X":0.0
+    },
+    "pKa_side": {"C":8.5, "D":3.9, "E":4.07, "H":6.5, "K":10.4, "R":12.5, "Y":10.0},
+    "pKa_term": {"N":8.6, "C":3.55}
+}
+
+# ---------------------------
+# DIWV instability dipeptides
+# (kept identical to original dataset)
+# ---------------------------
+DIWV = {
+ 'A':{'A':4,'C':0,'D':-2,'E':-1,'F':-3,'G':0,'H':-2,'I':-1,'K':-1,'L':-2,'M':-1,'N':-2,'P':-1,'Q':-1,'R':-1,'S':1,'T':0,'V':0,'W':-3,'Y':-2},
+ 'C':{'A':0,'C':9,'D':-3,'E':-4,'F':-2,'G':-3,'H':-3,'I':1,'K':-3,'L':-1,'M':-1,'N':-3,'P':-3,'Q':-3,'R':-3,'S':-1,'T':-1,'V':1,'W':-2,'Y':-2},
+ 'D':{'A':-2,'C':-3,'D':6,'E':2,'F':-3,'G':-1,'H':-1,'I':-3,'K':-1,'L':-4,'M':-3,'N':1,'P':-1,'Q':0,'R':-2,'S':0,'T':-1,'V':-3,'W':-4,'Y':-3},
+ 'E':{'A':-1,'C':-4,'D':2,'E':5,'F':-3,'G':-2,'H':0,'I':-3,'K':1,'L':-3,'M':-2,'N':0,'P':-1,'Q':2,'R':0,'S':0,'T':-1,'V':-2,'W':-3,'Y':-2},
+ 'F':{'A':-3,'C':-2,'D':-3,'E':-3,'F':6,'G':-4,'H':-1,'I':0,'K':-3,'L':0,'M':0,'N':-3,'P':-4,'Q':-3,'R':-3,'S':-2,'T':-2,'V':-1,'W':1,'Y':3},
+ 'G':{'A':0,'C':-3,'D':-1,'E':-2,'F':-4,'G':6,'H':-2,'I':-4,'K':-2,'L':-4,'M':-3,'N':0,'P':-2,'Q':-2,'R':-2,'S':0,'T':-2,'V':-3,'W':-2,'Y':-3},
+ 'H':{'A':-2,'C':-3,'D':-1,'E':0,'F':-1,'G':-2,'H':8,'I':-3,'K':-1,'L':-3,'M':-2,'N':1,'P':-2,'Q':0,'R':0,'S':-1,'T':-2,'V':-3,'W':-2,'Y':2},
+ 'I':{'A':-1,'C':1,'D':-3,'E':-3,'F':0,'G':-4,'H':-3,'I':4,'K':-3,'L':2,'M':1,'N':-3,'P':-3,'Q':-3,'R':-3,'S':-2,'T':-1,'V':3,'W':-3,'Y':-1},
+ 'K':{'A':-1,'C':-3,'D':-1,'E':1,'F':-3,'G':-2,'H':-1,'I':-3,'K':5,'L':-2,'M':-1,'N':0,'P':-1,'Q':1,'R':2,'S':0,'T':-1,'V':-2,'W':-3,'Y':-2},
+ 'L':{'A':-2,'C':-1,'D':-4,'E':-3,'F':0,'G':-4,'H':-3,'I':2,'K':-2,'L':4,'M':2,'N':-3,'P':-3,'Q':-2,'R':-2,'S':-2,'T':-1,'V':1,'W':-2,'Y':-1},
+ 'M':{'A':-1,'C':-1,'D':-3,'E':-2,'F':0,'G':-3,'H':-2,'I':1,'K':-1,'L':2,'M':5,'N':-2,'P':-2,'Q':0,'R':-1,'S':-1,'T':-1,'V':1,'W':-1,'Y':-1},
+ 'N':{'A':-2,'C':-3,'D':1,'E':0,'F':-3,'G':0,'H':1,'I':-3,'K':0,'L':-3,'M':-2,'N':6,'P':-2,'Q':0,'R':0,'S':1,'T':0,'V':-3,'W':-4,'Y':-2},
+ 'P':{'A':-1,'C':-3,'D':-1,'E':-1,'F':-4,'G':-2,'H':-2,'I':-3,'K':-1,'L':-3,'M':-2,'N':-2,'P':7,'Q':-1,'R':-2,'S':-1,'T':-1,'V':-2,'W':-4,'Y':-3},
+ 'Q':{'A':-1,'C':-3,'D':0,'E':2,'F':-3,'G':-2,'H':0,'I':-3,'K':1,'L':-2,'M':0,'N':0,'P':-1,'Q':5,'R':1,'S':0,'T':-1,'V':-2,'W':-2,'Y':-1},
+ 'R':{'A':-1,'C':-3,'D':-2,'E':0,'F':-3,'G':-2,'H':0,'I':-3,'K':2,'L':-2,'M':-1,'N':0,'P':-2,'Q':1,'R':5,'S':-1,'T':-1,'V':-3,'W':-3,'Y':-2},
+ 'S':{'A':1,'C':-1,'D':0,'E':0,'F':-2,'G':0,'H':-1,'I':-2,'K':0,'L':-2,'M':-1,'N':1,'P':-1,'Q':0,'R':-1,'S':4,'T':1,'V':-2,'W':-3,'Y':-2},
+ 'T':{'A':0,'C':-1,'D':-1,'E':-1,'F':-2,'G':-2,'H':-2,'I':-1,'K':-1,'L':-1,'M':-1,'N':0,'P':-1,'Q':-1,'R':-1,'S':1,'T':5,'V':0,'W':-2,'Y':-2},
+ 'V':{'A':0,'C':1,'D':-3,'E':-2,'F':-1,'G':-3,'H':-3,'I':3,'K':-2,'L':1,'M':1,'N':-3,'P':-2,'Q':-2,'R':-3,'S':-2,'T':0,'V':4,'W':-3,'Y':-1},
+ 'W':{'A':-3,'C':-2,'D':-4,'E':-3,'F':1,'G':-2,'H':-2,'I':-3,'K':-3,'L':-2,'M':-1,'N':-4,'P':-4,'Q':-2,'R':-3,'S':-3,'T':-2,'V':-3,'W':11,'Y':2},
+ 'Y':{'A':-2,'C':-2,'D':-3,'E':-2,'F':3,'G':-3,'H':2,'I':-1,'K':-2,'L':-1,'M':-1,'N':-2,'P':-3,'Q':-1,'R':-2,'S':-2,'T':-2,'V':-1,'W':2,'Y':7}
+}
+
+# ---------------------------
+# TAGS (short tags) and LARGE_TAGS
+# (kept same sequences, color, category, note)
+# ---------------------------
+TAGS = {
+  "His-Tag (6x)":         { "seqs":["HHHHHH"], "color":"#14b8a6", "category":"Tags & Sites", "note":"Purification via Immobilized Metal Affinity Chromatography (IMAC)." },
+  "His-Tag (8x–10x)":     { "seqs":["HHHHHHHH","HHHHHHHHH","HHHHHHHHHH"], "color":"#0ea5e9", "category":"Tags & Sites", "note":"Longer His-tags for stronger binding to IMAC resins." },
+  "FLAG":                 { "seqs":["DYKDDDDK"], "color":"#6366f1", "category":"Tags & Sites", "note":"Hydrophilic; contains Enterokinase cleavage site." },
+  "3xFLAG":               { "seqs":["DYKDHDGDYKDHDIDYKDDDDK"], "color":"#7c3aed", "category":"Tags & Sites", "note":"Tandem tag for higher affinity detection and purification." },
+  "HA":                   { "seqs":["YPYDVPDYA"], "color":"#f59e0b", "category":"Tags & Sites", "note":"From Influenza Hemagglutinin; widely used for detection." },
+  "3xHA":                 { "seqs":["YPYDVPDYAGYPYDVPDYAGYPYDVPDYA"], "color":"#fb923c", "category":"Tags & Sites", "note":"Tandem tag for higher affinity detection." },
+  "Myc":                  { "seqs":["EQKLISEEDL"], "color":"#ec4899", "category":"Tags & Sites", "note":"From human c-Myc. WARNING: Antibody binding (e.g., 9E10 clone) can be context-dependent." },
+  "V5":                   { "seqs":["GKPIPNPLLGLDST"], "color":"#22d3ee", "category":"Tags & Sites", "note":"From P and V proteins of Simian Virus 5." },
+  "T7":                   { "seqs":["MASMTGGQQMG"], "color":"#06b6d4", "category":"Tags & Sites", "note":"Leader sequence from T7 bacteriophage major capsid protein." },
+  "S-tag":                { "seqs":["KETAAAKFERQHMDS"], "color":"#8b5cf6", "category":"Tags & Sites", "note":"Binds to S-protein (derived from RNase A)." },
+  "Strep-II":             { "seqs":["WSHPQFEK"], "color":"#06b6d4", "category":"Tags & Sites", "note":"Binds with high affinity to Strep-Tactin resin." },
+  "Twin-Strep":           { "seqs":["WSHPQFEKGGGSGGGSGGSAWSHPQFEK"], "color":"#0891b2", "category":"Tags & Sites", "note":"Tandem tag for enhanced binding to Strep-Tactin." },
+  "ALFA-tag":             { "seqs":["SRLEEELRRRLTE"], "color":"#ef4444", "category":"Tags & Sites", "note":"Small, stable alpha-helical tag for capture and detection." },
+  "AviTag":               { "seqs":["GLNDIFEAQKIEWHE"], "color":"#3b82f6", "category":"Tags & Sites", "note":"Site for specific in vivo or in vitro biotinylation by BirA ligase." },
+  "SBP-tag":              { "seqs":["MDEKTTGWRGGHVVEGLAGELEQLRARLEHHPQGQREP"], "color":"#2563eb", "category":"Tags & Sites", "note":"Streptavidin-Binding Peptide for affinity purification." },
+  "Calmodulin-Binding":   { "seqs":["KRRWKKNFIAVSAANRFKKISSSGAL"], "color":"#16a34a", "category":"Tags & Sites", "note":"Ca2+-dependent binding to Calmodulin resin; allows for gentle elution with EGTA." },
+  "Rho1D4":               { "seqs":["TETSQVAPA"], "color":"#059669", "category":"Tags & Sites", "note":"C-terminal tag for membrane protein purification." },
+  "VSV-G":                { "seqs":["YTDIEMNRLGK"], "color":"#0ea5e9", "category":"Tags & Sites", "note":"Epitope from Vesicular Stomatitis Virus Glycoprotein." },
+  "SpyTag":               { "seqs":["AHIVMVDAYKPTK"], "color":"#f472b6", "category":"Tags & Sites", "note":"Forms a spontaneous, covalent isopeptide bond with its SpyCatcher protein partner." },
+  "SnoopTag":             { "seqs":["KLGDIEFIKVNK"], "color":"#a78bfa", "category":"Tags & Sites", "note":"Forms a covalent bond with its SnoopCatcher partner; orthogonal to SpyTag." },
+  "Spot-Tag":             { "seqs":["PDRVRAVSHWSS"], "color":"#10b981", "category":"Tags & Sites", "note":"Binds Spot-Nanobody with high affinity for detection and IP." },
+  "HiBiT":                { "seqs":["VSGWRLFKKIS"], "color":"#14b8a6", "category":"Tags & Sites", "note":"Luminescent tag; reconstitutes NanoLuciferase with the LgBiT protein fragment." },
+
+  # Protease cleavage sites
+  "TEV site":             { "seqs":["ENLYFQG","ENLYFQS"], "color":"#64748b", "category":"Tags & Sites", "note":"Tobacco Etch Virus protease site. Cleavage between Q and G/S." },
+  "Thrombin site":        { "seqs":["LVPRGS"], "color":"#78716c", "category":"Tags & Sites", "note":"Common recognition site; cleaves after R. Can have off-target effects." },
+  "HRV 3C / PreScission": { "seqs":["LEVLFQGP"], "color":"#71717a", "category":"Tags & Sites", "note":"Human Rhinovirus 3C protease. Cleavage between Q and G." },
+  "Factor Xa site":       { "seqs":["IEGR", "IDGR"], "color":"#854d0e", "category":"Tags & Sites", "note":"Cleavage after R. Can have off-target effects." },
+  "Enterokinase site":    { "seqs":["DDDDK"], "color":"#6366f1", "category":"Tags & Sites", "note":"Highly specific; cleaves after K." },
+
+  # Other specific sites
+  "RGD motif":            { "seqs":["RGD"], "color":"#34d399", "category":"Site", "note":"Integrin-binding motif involved in cell adhesion." }
+}
+
+LARGE_TAGS = {
+  "GST (S. japonicum)": {
+    "seq": "MSPILGYWKIKGLVQPTRLLLEYLEEKYEEHLYERDEGDKWRNKKFELGLEFPNLPYYIDGDVKLTQSMAIIRYIADKHNMLGGCPKERAEISMLEGAVLDIRYGVSRIAYSKDFETLKVDFLSKLPEMLKMFEDRLCHKTYLNGDHVTHPDFMLYDALDVVLYMDPMCLDAFPKLVCFKKRIEAIPQIDKYLKSSKYIAWPLQGWQATFGGGDHPPKSD",
+    "color": "#a16207", "category": "Tags & Sites", "note": "Glutathione S-Transferase (~26 kDa). Enhances solubility and allows for affinity purification on glutathione resin."
+  },
+  "MBP (E. coli)": {
+    "seq": "MKIEEGKLVIWINGDKGYNGLAEVGKKFEKDTGIKVTVEHPDKLEEKFPQVAATGDGPDIIFWAHDRFGGYAQSGLLAEITPDKAFQDKLYPFTWDAVRYNGKLIAYPIAVEALSLIYNKDLLPNPPKTWEEIPALDKEIKAKGKSALMFNLQEPYFTWPLIAADGGYAFKYENGKYDIKDVGVDNAGAKAGLTFLVDLIKNKHMNADTDYSIAEAAFNKGETAMTINGPWAWSNIDTSKVNYGVTVLPTFKGQPSKPFVGVLSAGINAASPNKELAKEFLENYLLTDEGLEAVNKDKPLGAVALKSYEEELAKDPRIAATMENAQKGEIMPNIPQMSAFWYAVRTAVINAASGRQTVDEALKDAQTRITK",
+    "color": "#4d7c0f", "category": "Tags & Sites", "note": "Maltose-Binding Protein (~42 kDa). One of the most effective solubility-enhancing tags; allows purification on amylose resin."
+  },
+  "MBP (general)": {
+    "seq": "KIEEGKLVIWINGDKGYNGLAEVGKKFEKDTGIKVTVEHPDKLEEKFPQVAATGDGPDIIFWAHDRFGGYAQSGLLAEITPDKAFQDKLYPFTWDAVRYNGKLIAYPIAVEALSLIYNKDLLPNPPKTWEEIPALDKELKAKGKSALMFNLQEPYFTWPLIAADGGYAFKYENGKYDIKDVGVDNAGAKAGLTFLVDLIKNKHMNADTDYSIAEAAFNKGETAMTINGPWAWSNIDTSKVNYGVTVLPTFKGQPSKPFVGVLSAGINAASPNKELAKEFLENYLLTDEGLEAVNKDKPLGAVALKSYEEELAKDPRIAATMENAQKGEIMPNIPQMSAFWYAVRTAVINAASGRQTVDEAPKDAQT",
+    "color": "#4d7c0f", "category": "Tags & Sites", "note": "Maltose-Binding Protein (~59 kDa). Generalized version for solubility enhancement; allows purification on amylose resin."
+  },
+  "Thioredoxin (E. coli)": {
+    "seq": "SDKIIHLTDDSFDTDVLKADGAILVDFWAEWCGPCKMIAPILDEIADEYQGKLTVAKLNIDQNPGTAPKYGIRGIPTLLLFKNGEVAATKVGALSKGQLKEFLDANLA",
+    "color": "#15803d", "category": "Tags & Sites", "note": "Thioredoxin 1 (~12 kDa). Enhances solubility and can aid in correct disulfide bond formation in the cytoplasm."
+  },
+  "SUMO (S. cerevisiae)": {
+    "seq": "MSDSEVNQEAKPEVKPEVKPETHINLKVSDGSSEIFFKIKKTTPLRRLMEAFAKRQGKEMDSLRFLYDGIRIQADQTPEDLDMEDNDIIEAHREQIGG",
+    "color": "#7e22ce", "category": "Tags & Sites", "note": "Smt3 protein (~11 kDa). Enhances solubility. Cleavage by a SUMO-specific protease (e.g., Ulp1) yields a native N-terminus."
+  },
+  "EGFP": {
+    "seq": "MVSKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDATYGKLTLKFICTTGKLPVPWPTLVTTLTYGVQCFSRYPDHMKQHDFFKSAMPEGYVQERTIFFKDDGNYKTRAEVKFEGDTLVNRIELKGIDFKEDGNILGHKLEYNYNSHNVYIMADKQKNGIKVNFKIRHNIEDGSVQLADHYQQNTPIGDGPVLLPDNHYLSTQSALSKDPNEKRDHMVLLEFVTAAGITLGMDELYK",
+    "color": "#4ade80", "category": "Tags & Sites", "note": "Enhanced Green Fluorescent Protein (~27 kDa). Intrinsically fluorescent reporter for live-cell imaging."
+  },
+  "mCherry": {
+    "seq": "MVSKGEEDNMAIIKEFMRFKVHMEGSVNGHEFEIEGEGEGRPYEGTQTAKLKVTKGGPLPFAWDILSPQFMYGSKAYVKHPADIPDYLKLSFPEGFKWERVMNFEDGGVVTVTQDSSLQDGEFIYKVKLRGTNFPSDGPVMQKKTMGWEASSERMYPEDGALKGEIKMRLKLKDGGHYDAEVKTTYMAKKPVQLPGAYKTDIKLDITSHNEDYTIVEQYERAEGRHSTGGMDELYK",
+    "color": "#f43f5e", "category": "Tags & Sites", "note": "Monomeric Red Fluorescent Protein (~27 kDa). Intrinsically fluorescent reporter for multicolor imaging."
+  }
+}
+
+# ---------------------------
+# MOTIFS (regexes)
+# Keep regex patterns equivalent to JS ones; compiled in Python
+# ---------------------------
+# NOTE: these regexes are heuristics and many use upper-case letters; input sequences are uppercased.
+MOTIFS_DEF = [
+  {"name":"N-glycosylation (N-X-[ST])", "category":"PTM", "color":"#f97316",
+   "note":"N-linked glycosylation consensus (X cannot be Proline).", "pattern":r"N[^P][ST]"},
+  {"name":"C-mannosylation (W-x-x-W)", "category":"PTM", "color":"#fb923c",
+   "note":"Tryptophan C-mannosylation motif.", "pattern":r"W..W"},
+  {"name":"Tyrosine sulfation ([DE]Y)", "category":"PTM", "color":"#f59e0b",
+   "note":"Acidic residue before Tyr; common heuristic.", "pattern":r"[DE]Y"},
+  {"name":"SUMOylation (ψ-K-x-[DE])", "category":"PTM", "color":"#84cc16",
+   "note":"Hydrophobic ψ (V/I/L/M/F/Y/W/C) before Lys; acidic at +2.", "pattern":r"[VILMFYWC]K.[DE]"},
+  {"name":"Lysine Acetylation (K)", "category":"PTM", "color":"#a3e635",
+   "note":"Heuristic for Lys acetylation. HIGH FALSE-POSITIVE RATE. Use dedicated predictors for validation.", "pattern":r"K"},
+  {"name":"Arg Methylation (GAR motif)", "category":"PTM", "color":"#4ade80",
+   "note":"Glycine-Arginine Rich motif heuristic for PRMTs. HIGH FALSE-POSITIVE RATE.", "pattern":r"G.{0,3}R.{0,3}G"},
+  {"name":"CK2 phosphorylation", "category":"PTM", "color":"#22c55e",
+   "note":"Casein Kinase 2 site: (S/T)xx(D/E).", "pattern":r"[ST]..[DE]"},
+  {"name":"PKA phosphorylation", "category":"PTM", "color":"#f59e0b",
+   "note":"Protein Kinase A site: (R/K)(R/K)x(S/T), no Pro at +1.", "pattern":r"(?:R|K){2}.[ST](?!P)"},
+  {"name":"PKC phosphorylation", "category":"PTM", "color":"#f43f5e",
+   "note":"Protein Kinase C site: (S/T)x(R/K).", "pattern":r"[ST].[RK]"},
+  {"name":"Akt/PKB phosphorylation", "category":"PTM", "color":"#10b981",
+   "note":"Akt/PKB site: RxRxx(S/T).", "pattern":r"R.R..[ST]"},
+  {"name":"CDK phosphorylation", "category":"PTM", "color":"#0ea5e9",
+   "note":"Cyclin-Dependent Kinase site: (S/T)P x (K/R).", "pattern":r"[ST]P.[KR]"},
+  {"name":"MAPK phosphorylation", "category":"PTM", "color":"#ef4444",
+   "note":"Mitogen-Activated Protein Kinase site: Px(S/T)P.", "pattern":r"P.[ST]P"},
+  {"name":"ATM/ATR phosphorylation", "category":"PTM", "color":"#fbbf24",
+   "note":"DNA damage response kinase site: (S/T)Q.", "pattern":r"[ST]Q"},
+  {"name":"N-myristoylation (N-term)", "category":"PTM", "color":"#65a30d",
+   "note":"Gly at pos 2 required; simple heuristic.", "pattern":r"^M?G(?![EDRKHP])[A-Z]{3}[STAGCNV]"},
+  {"name":"Prenylation (CaaX, C-term)", "category":"PTM", "color":"#16a34a",
+   "note":"Cys + two aliphatic + [LIVM] at C-terminus.", "pattern":r"C[AILVFM][A-Z][LIVM]$"},
+  {"name":"C-term Amidation (G-R/K-R/K)", "category":"PTM", "color":"#0d9488",
+   "note":"PROSITE PS00009. Signal for C-terminal amidation of peptide hormones after cleavage.", "pattern":r"G[RK][RK]$"},
+
+  # Protease & enzyme
+  {"name":"Furin Cleavage (R-x-K/R-R)", "category":"Tags & Sites", "color":"#a16207",
+   "note":"Proprotein convertase site for maturation in secretory pathway.", "pattern":r"R.[KR]R"},
+  {"name":"Caspase-3 Cleavage (DEVD)", "category":"Tags & Sites", "color":"#991b1b",
+   "note":"Apoptotic executioner caspase site.", "pattern":r"DEVD"},
+  {"name":"Caspase-8 Cleavage ([IL]ETD)", "category":"Tags & Sites", "color":"#b91c1c",
+   "note":"Apoptotic initiator caspase site.", "pattern":r"[IL]ETD"},
+  {"name":"Sortase A (LPXTG)", "category":"Tags & Sites", "color":"#0ea5e9",
+   "note":"Transpeptidation signal in Gram-positive bacteria.", "pattern":r"LP[A-Z]TG"},
+  {"name":"Tetracysteine Tag", "category":"Tags & Sites", "color":"#fb7185",
+   "note":"Binds biarsenical dyes (FlAsH/ReAsH). Minimal motif is CCxxCC.", "pattern":r"CC[A-Z]{2}CC"},
+
+  # Localization
+  {"name":"Signal Peptide (N-term)", "category":"Localization", "color":"#67e8f9",
+   "note":"Heuristic for secretory signal peptide. HIGHLY VARIABLE. Use SignalP for validation.", "pattern":r"^M[A-Z]{0,20}[KR][A-Z]{2,8}[LIFVAGMW]{8,15}"},
+  {"name":"Transmembrane Domain", "category":"Localization", "color":"#22d3ee",
+   "note":"Heuristic for hydrophobic transmembrane helix. HIGH FALSE-POSITIVE RATE. Use TMHMM for validation.", "pattern":r"[LIFVAGMW]{18,25}"},
+  {"name":"Monopartite NLS", "category":"Localization", "color":"#a855f7",
+   "note":"Classical nuclear localization signal, K(K/R)x(K/R).", "pattern":r"K[KR][A-Z][KR]"},
+  {"name":"Bipartite NLS", "category":"Localization", "color":"#8b5cf6",
+   "note":"Two basic clusters separated by ~10aa spacer.", "pattern":r"[KR]{2}.{10,12}[KR]{3,}"},
+  {"name":"NES (Leu-rich, heuristic)", "category":"Localization", "color":"#ec4899",
+   "note":"Φ-x(2,3)-Φ-x(2,3)-Φ-x-Φ; Φ=LIVFM.", "pattern":r"[LIVFM][A-Z]{2,3}[LIVFM][A-Z]{2,3}[LIVFM][A-Z][LIVFM]"},
+  {"name":"PTS1 (peroxisome, C-term)", "category":"Localization", "color":"#22d3ee",
+   "note":"C-terminal [SAC][KRH][LM].", "pattern":r"[SAC][RKH][LM]$"},
+  {"name":"PTS2 (peroxisome, N-term)", "category":"Localization", "color":"#06b6d4",
+   "note":"Within first ~40 aa: [RK][LVI].{5}[HQ][LA].", "pattern":r"(?=^.{0,40})[RK][LVI][A-Z]{5}[HQ][LA]"},
+  {"name":"ER retention (KDEL/HDEL)", "category":"Localization", "color":"#10b981",
+   "note":"Luminal ER retrieval signal (C-terminus).", "pattern":r"(KDEL|HDEL)$"},
+  {"name":"ER retrieval (KKXX, C-term)", "category":"Localization", "color":"#059669",
+   "note":"Cytosolic KKxx at extreme C-terminus.", "pattern":r"KK[A-Z]{2}$"},
+
+  # Domains & degrons
+  {"name":"Walker A (P-loop)", "category":"Domain", "color":"#a78bfa",
+   "note":"ATP/GTP binding motif: GxxxxGKS/T.", "pattern":r"G[A-Z]{4}GK[ST]"},
+  {"name":"Zn finger C2H2", "category":"Domain", "color":"#7c3aed",
+   "note":"Classical Cys2-His2 zinc finger.", "pattern":r"C.{2,4}C.{12}H.{3,5}H"},
+  {"name":"Coiled-Coil Heptad Repeat", "category":"Domain", "color":"#94a3b8",
+   "note":"Heuristic for coiled-coil structure: [h]xxxxx[h]xxxxx[h]. h=hydrophobic.", "pattern":r"[LIVMF][A-Z]{6}[LIVMF][A-Z]{6}[LIVMF]"},
+  {"name":"SH3-binding (Class I)", "category":"Domain", "color":"#60a5fa",
+   "note":"Proline-rich motif: RxxPxxP.", "pattern":r"R..P..P"},
+  {"name":"WW-binding (PPxY)", "category":"Domain", "color":"#38bdf8",
+   "note":"PPxY motif.", "pattern":r"PP.Y"},
+  {"name":"PDZ-binding (Class I, C-term)", "category":"Domain", "color":"#14b8a6",
+   "note":"(S/T)xV at C-terminus.", "pattern":r"[ST][A-Z]V$"},
+  {"name":"KEN box (APC/C degron)", "category":"Degron", "color":"#ef4444",
+   "note":"Degradation signal for APC/C E3 ligase.", "pattern":r"KEN.{0,3}N"},
+  {"name":"D-box (RxxL)", "category":"Degron", "color":"#f87171",
+   "note":"Destruction box for APC/C E3 ligase.", "pattern":r"R..L..[ILV]"}
+]
+
+# Pre-compile motif regexes with flags similar to JS defaults (no case-insensitive; sequences are uppercased)
+MOTIFS = []
+for m in MOTIFS_DEF:
+    # Many JS regexes used global flag; Python finditer covers that behavior.
+    # Preserve anchors ^ and $ by using default multiline=False (sequence is a single line).
+    try:
+        MOTIFS.append({
+            "name": m["name"],
+            "category": m["category"],
+            "color": m["color"],
+            "note": m.get("note", ""),
+            "regex": re.compile(m["pattern"])
+        })
+    except re.error:
+        # fallback: compile safely
+        MOTIFS.append({
+            "name": m["name"],
+            "category": m["category"],
+            "color": m["color"],
+            "note": m.get("note", ""),
+            "regex": re.compile(m["pattern"], re.DOTALL)
+        })
+
+
+# ---------------------------
+# FASTA parsing & sanitization
+# ---------------------------
+def parse_fasta_flexible(text: str) -> List[Dict[str,str]]:
+    """
+    Mimics parseFastaFlexible from JS.
+    Returns list of dicts with 'header' and 'seq' (raw, not sanitized).
+    """
+    lines = text.replace('\r', '').split('\n')
+    out = []
+    header = None
+    seq_parts = []
+    saw_header = False
+
+    for raw in lines:
+        l = raw.strip()
+        if not l:
+            continue
+        if l.startswith(';'):
+            continue
+        if l.startswith('>'):
+            if header is not None:
+                out.append({"header": header, "seq": ''.join(seq_parts)})
+            after = l[1:].strip()
+            tail_match = re.search(r'([ACDEFGHIKLMNPQRSTVWYUBZOJX]+)\s*$', after, flags=re.I)
+            if tail_match and len(tail_match.group(1)) >= 5:
+                # There is an inline tail sequence at end of header
+                tail = tail_match.group(1)
+                head_part = after[:len(after)-len(tail)].strip()
+                header = head_part or f"Sequence {len(out)+1}"
+                seq_parts = [tail.upper()]
+            else:
+                header = after or f"Sequence {len(out)+1}"
+                seq_parts = []
+            saw_header = True
+        else:
+            seq_parts.append(l)
+    if header is not None:
+        out.append({"header": header, "seq": ''.join(seq_parts)})
+    if not saw_header:
+        joined = '\n'.join(lines)
+        if re.search(r'[A-Za-z]', joined):
+            out.append({"header": "Sequence 1", "seq": joined})
+    return out
+
+def sanitize_sequence_with_log(raw: str) -> Dict[str,Any]:
+    """
+    Uppercase, remove invalid chars. Returns dict: seq, issues (string or ''), notes (comma string)
+    Mirrors sanitizeSequenceWithLog behavior.
+    """
+    upper = raw.upper()
+    removed = {"whitespace":0, "digits":0, "dashes":0, "stars":0, "punctuation":0, "other":0}
+    keep_set = set(list("ACDEFGHIKLMNPQRSTVWYUBZOJX"))
+    cleaned = []
+    for ch in upper:
+        if ch in keep_set:
+            cleaned.append(ch); continue
+        if ch.isspace():
+            removed["whitespace"] += 1; continue
+        if ch.isdigit():
+            removed["digits"] += 1; continue
+        if ch in "-–—_":
+            removed["dashes"] += 1; continue
+        if ch == "*":
+            removed["stars"] += 1; continue
+        if re.match(r"[.,:;\/\|\(\)\[\]\{\}'\"+\=<>?~`!@#$%^&]", ch):
+            removed["punctuation"] += 1; continue
+        removed["other"] += 1
+    seq = ''.join(cleaned)
+    if not seq:
+        raise ValueError("Sequence contains no valid residues after cleaning.")
+    notes = []
+    if removed["whitespace"]: notes.append(f"spaces {removed['whitespace']}")
+    if removed["digits"]: notes.append(f"digits {removed['digits']}")
+    if removed["dashes"]: notes.append(f"dashes {removed['dashes']}")
+    if removed["stars"]: notes.append(f"stars {removed['stars']}")
+    if removed["punctuation"]: notes.append(f"punct {removed['punctuation']}")
+    issues = f"Invalid letters removed: {removed['other']}" if removed["other"] else ""
+    return {"seq": seq, "issues": issues, "notes": ', '.join(notes)}
+
+# ---------------------------
+# Core calculations
+# ---------------------------
+def count_aa(seq: str) -> Dict[str,int]:
+    c = {}
+    for ch in seq:
+        c[ch] = c.get(ch, 0) + 1
+    return c
+
+def molecular_weight(counts: Dict[str,int]) -> float:
+    m = 18.01528  # water
+    for a, n in counts.items():
+        m += n * AA["mw"].get(a, 0.0)
+    return m
+
+def gravy(seq: str) -> float:
+    if not seq:
+        return 0.0
+    s = 0.0
+    for a in seq:
+        s += AA["kd"].get(a, 0.0)
+    return s / len(seq)
+
+def net_charge(counts: Dict[str,int], pH: float) -> float:
+    # positive contributions
+    p = 1.0 / (1.0 + 10**(pH - AA["pKa_term"]["N"]))
+    p += (counts.get("K",0)) / (1.0 + 10**(pH - AA["pKa_side"]["K"]))
+    p += (counts.get("R",0)) / (1.0 + 10**(pH - AA["pKa_side"]["R"]))
+    p += (counts.get("H",0)) / (1.0 + 10**(pH - AA["pKa_side"]["H"]))
+    # negative contributions
+    n = 1.0 / (1.0 + 10**(AA["pKa_term"]["C"] - pH))
+    n += (counts.get("D",0)) / (1.0 + 10**(AA["pKa_side"]["D"] - pH))
+    n += (counts.get("E",0)) / (1.0 + 10**(AA["pKa_side"]["E"] - pH))
+    n += (counts.get("C",0)) / (1.0 + 10**(AA["pKa_side"]["C"] - pH))
+    n += (counts.get("Y",0)) / (1.0 + 10**(AA["pKa_side"]["Y"] - pH))
+    return p - n
+
+def isoelectric_point(counts: Dict[str,int]) -> float:
+    lo, hi = 0.0, 14.0
+    for _ in range(60):
+        mid = (lo + hi) / 2.0
+        if net_charge(counts, mid) > 0:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2.0
+
+def instability_index(seq: str) -> float:
+    if len(seq) < 2:
+        return 0.0
+    score = 0.0
+    for i in range(len(seq)-1):
+        a, b = seq[i], seq[i+1]
+        if a in DIWV and b in DIWV[a]:
+            score += DIWV[a][b]
+    return (10.0 / len(seq)) * score
+
+def extinction_coefficients(counts: Dict[str,int], mw: float) -> Dict[str,float]:
+    nY = counts.get("Y", 0)
+    nW = counts.get("W", 0)
+    nC = counts.get("C", 0)
+    reduced = nY * AA["ext"]["Y"] + nW * AA["ext"]["W"]
+    cystines = reduced + (nC // 2) * AA["ext"]["CYS_DISULFIDE_PAIR"]
+    A1mgml_reduced = (reduced / mw) if mw > 0 else 0.0
+    A1mgml_cystines = (cystines / mw) if mw > 0 else 0.0
+    return {"reduced": reduced, "cystines": cystines, "A1mgml_reduced": A1mgml_reduced, "A1mgml_cystines": A1mgml_cystines}
+
+def fractional_charge(res: str, pH: float) -> float:
+    s = AA["pKa_side"]
+    if res == 'K':
+        return 1.0 / (1.0 + 10**(pH - s["K"]))
+    if res == 'R':
+        return 1.0 / (1.0 + 10**(pH - s["R"]))
+    if res == 'H':
+        return 1.0 / (1.0 + 10**(pH - s["H"]))
+    if res == 'D':
+        return -1.0 / (1.0 + 10**(s["D"] - pH))
+    if res == 'E':
+        return -1.0 / (1.0 + 10**(s["E"] - pH))
+    if res == 'C':
+        return -1.0 / (1.0 + 10**(s["C"] - pH))
+    if res == 'Y':
+        return -1.0 / (1.0 + 10**(s["Y"] - pH))
+    return 0.0
+
+def per_residue_charge_array(seq: str, pH: float) -> List[float]:
+    arr = [0.0] * len(seq)
+    for i,aa in enumerate(seq):
+        arr[i] = fractional_charge(aa, pH)
+    if len(seq) > 0:
+        arr[0] += 1.0 / (1.0 + 10**(pH - AA["pKa_term"]["N"]))
+        arr[-1] += -1.0 / (1.0 + 10**(AA["pKa_term"]["C"] - pH))
+    return arr
+
+# ---------------------------
+# Feature scanning & topology heuristics
+# ---------------------------
+def merge_segments(arr: List[Dict[str,Any]]) -> List[Dict[str,Any]]:
+    if not arr:
+        return []
+    arr_sorted = sorted(arr, key=lambda x: (x["start"], x["end"]))
+    out = [arr_sorted[0].copy()]
+    for cur in arr_sorted[1:]:
+        last = out[-1]
+        same_class = (cur.get("category") == last.get("category")) and (cur.get("name") == last.get("name"))
+        if same_class and cur["start"] <= last["end"] + 1:
+            last["end"] = max(last["end"], cur["end"])
+        else:
+            out.append(cur.copy())
+    return out
+
+def kd_average(seq: str, i: int, w: int) -> float:
+    s = 0.0
+    for k in range(w):
+        idx = i + k
+        if idx < 0 or idx >= len(seq):
+            s += 0.0
+        else:
+            s += AA["kd"].get(seq[idx], 0.0)
+    return s / w
+
+def transmembranes(seq: str, w: int = 19, thr: float = 1.6) -> List[Dict[str,Any]]:
+    feats = []
+    L = len(seq)
+    if L < w:
+        return []
+    i = 0
+    while i <= L - w:
+        if kd_average(seq, i, w) >= thr:
+            j = i + w
+            while j < L and kd_average(seq, j - w + 1, w) >= (thr - 0.2):
+                j += 1
+            feats.append({"start": i, "end": j-1, "name":"Transmembrane", "category":"Topology", "color":"#34d399"})
+            i = j
+        else:
+            i += 1
+    return merge_segments(feats)
+
+def signal_peptide_candidates(seq: str) -> List[Dict[str,Any]]:
+    feats = []
+    N = min(30, len(seq))
+    i = 0
+    while i <= N - 7:
+        if kd_average(seq, i, 7) >= 1.6:
+            j = i + 7
+            while j < N and kd_average(seq, j - 6, 7) >= 1.2:
+                j += 1
+            feats.append({"start": i, "end": j-1, "name":"Signal peptide (candidate)", "category":"Topology", "color":"#fb7185", "note":"Heuristic: hydrophobic stretch near N-terminus."})
+            i = j
+        else:
+            i += 1
+    return feats
+
+def scan_features(seq: str) -> List[Dict[str,Any]]:
+    """
+    Scans for exact TAGS sequences and regex MOTIFS. Returns feature dicts.
+    """
+    feats = []
+    # Exact tag string searches (TAGS)
+    for name,defn in TAGS.items():
+        for pattern in defn["seqs"]:
+            # Search all occurrences (overlapping allowed by advancing from idx+1)
+            start_idx = seq.find(pattern)
+            while start_idx != -1:
+                feats.append({
+                    "start": start_idx,
+                    "end": start_idx + len(pattern) - 1,
+                    "name": name,
+                    "match": pattern,
+                    "note": defn.get("note", ""),
+                    "color": defn.get("color"),
+                    "category": defn.get("category")
+                })
+                start_idx = seq.find(pattern, start_idx + 1)
+
+    # MOTIFS (regex)
+    for m in MOTIFS:
+        regex = m["regex"]
+        for match in regex.finditer(seq):
+            s = match.start()
+            matched = match.group(0)
+            length = len(matched)
+            feats.append({
+                "start": s,
+                "end": s + length - 1,
+                "name": m["name"],
+                "color": m.get("color"),
+                "category": m.get("category"),
+                "match": matched,
+                "note": m.get("note","")
+            })
+            # Note: if regex can match zero-length (rare), finditer avoids infinite loop.
+    return feats
+
+# ---------------------------
+# Stats helpers
+# ---------------------------
+def get_residue_stats(seq: str) -> Dict[str,Any]:
+    counts = count_aa(seq)
+    std = list("ACDEFGHIKLMNPQRSTVWY")
+    total = len(seq)
+    pct = {}
+    for aa in std:
+        n = counts.get(aa, 0)
+        pct[aa] = f"{(n / max(1,total) * 100):.2f}"
+    return {"counts": counts, "pct": pct, "total": total, "order": std}
+
+# ---------------------------
+# Plots & smoothing util
+# ---------------------------
+def moving_average(arr: List[float], w: int) -> List[float]:
+    if w <= 1:
+        return arr[:]
+    half = w // 2
+    L = len(arr)
+    out = [0.0] * L
+    for i in range(L):
+        s = 0.0; n = 0
+        for k in range(i-half, i+half+1):
+            if 0 <= k < L:
+                s += arr[k]; n += 1
+        out[i] = (s / n) if n else 0.0
+    return out
+
+# ---------------------------
+# A280 helper functions
+# ---------------------------
+def calc_A_from_mgml(eps: float, mw: float, mgml: float, path: float) -> float:
+    if not (eps > 0 and mw > 0 and path > 0 and mgml >= 0):
+        return float("nan")
+    return (eps / mw) * mgml * path
+
+def calc_A_from_uM(eps: float, uM: float, path: float) -> float:
+    if not (eps > 0 and path > 0 and uM >= 0):
+        return float("nan")
+    return eps * (uM * 1e-6) * path
+
+def conc_from_A(A: float = 0.0, path: float = 1.0, eps: float = 0.0, mw: float = 1.0) -> Dict[str,float]:
+    if not (eps > 0 and path > 0 and mw > 0 and A >= 0):
+        return {"mgml": float("nan"), "uM": float("nan")}
+    mgml = A / ((eps / mw) * path)
+    uM = (A / (eps * path)) * 1e6
+    return {"mgml": mgml, "uM": uM}
+
+# ---------------------------
+# Utilities: sanitize filename, CSV exports
+# ---------------------------
+def sanitize_name(s: str) -> str:
+    return re.sub(r"[^\w\d\-_.]+", "_", s)[:120] or "sequence"
+
+def props_to_csv(props: Dict[str,Any]) -> str:
+    """
+    props: mapping of property name -> value, returns CSV text single row (header + row)
+    """
+    header = ",".join(f'"{k.replace("\"","\"\"")}"' for k in props.keys())
+    row = ",".join(f'"{str(v).replace("\"","\"\"")}"' for v in props.values())
+    return header + "\n" + row
+
+def summary_csv(results: List[Dict[str,Any]], pH: float = 7.4) -> str:
+    header = ['Header','Length','MW_Da','pI', f'Charge_at_pH_{pH:.1f}','GRAVY','Instability','E280_red','E280_cys','A1mgml_red','A1mgml_cys']
+    rows = []
+    for o in results:
+        rows.append([
+            o.get("header",""),
+            o.get("length",0),
+            f"{o.get('molecularWeight',0.0):.2f}",
+            f"{o.get('pI',0.0):.3f}",
+            f"{net_charge(o.get('counts',{}), pH):.3f}",
+            f"{o.get('gravy',0.0):.4f}",
+            f"{o.get('instability',0.0):.2f}",
+            o.get("extinction",{}).get("reduced",0),
+            o.get("extinction",{}).get("cystines",0),
+            f"{o.get('extinction',{}).get('A1mgml_reduced',0.0):.5f}",
+            f"{o.get('extinction',{}).get('A1mgml_cystines',0.0):.5f}"
+        ])
+    # produce CSV string
+    lines = [",".join(f'"{h}"' for h in header)]
+    for r in rows:
+        lines.append(",".join(f'"{str(x).replace("\"","\"\"")}"' for x in r))
+    return "\n".join(lines)
+
+# ---------------------------
+# Top-level analyzeSingle (mirrors JS analyzeSingle)
+# ---------------------------
+_result_counter = 0
+
+def analyze_single(item: Dict[str,str], pH_value: float = 7.4, tm_window: int = 19, tm_thr: float = 1.6) -> Dict[str,Any]:
+    """
+    item: {"header":..., "seq": ...} where seq must already be sanitized (uppercase, valid chars).
+    Returns a dict with analysis fields like JS version.
+    """
+    global _result_counter
+    s = item["seq"]
+    L = len(s)
+    c = count_aa(s)
+    tmW = int(tm_window)
+    tmT = float(tm_thr)
+    mw = molecular_weight(c)
+    tm_segs = transmembranes(s, tmW, tmT)
+    sp_segs = signal_peptide_candidates(s)
+    motif_segs = scan_features(s)
+    all_feats = merge_segments([ *tm_segs, *sp_segs, *motif_segs ])
+    _result_counter += 1
+    return {
+        "id": _result_counter,
+        "header": item.get("header", f"Sequence {_result_counter}"),
+        "seq": s,
+        "length": L,
+        "molecularWeight": mw,
+        "pI": isoelectric_point(c),
+        "chargeAtPH": net_charge(c, float(pH_value)),
+        "gravy": gravy(s),
+        "extinction": extinction_coefficients(c, mw),
+        "instability": instability_index(s),
+        "features": all_feats,
+        "counts": c
+    }
+
+# ---------------------------
+# Small demo / self-test
+# ---------------------------
+if __name__ == "__main__":
+    # Example from your page (Vimentin sp fragment) to test functionality
+    example_fasta = """>sp|P0DP23|VIME_HUMAN Vimentin
+MSTRSVSSSSYRRMFGGPGTASRPSSSRSYVTTSTRTYSLGSALRPSTSRSLYASSPGGVYATRSSAVRLR
+SSVPGVRLLQDSVDFSLADAINTEFKNTRTNEKVELQELNDRFANYIDKVRFLEQQNKILLAELEQLKGQ
+GKSRLGDLYEEEMRELRRQVDQLTNDKARVEVERDNLAEDIMRLREKLQEEMLQRQEEAENNLAAFRADV
+DAATLARIDLERRIENLSIEELLCKSDASGYARVFGADLERAKEKLNVEAMHEFVQQLARAEEDNYRGVL
+SLTPIEFRAGEPYSDRHGYFAVYEELARTKKLDSVGSEALSVRQGHDVFLARKLLEIPALEFSSVQNQSL
+QTSVDVFYVPKFEAAVRTFTREAGSEVSELTDSFRQKYETAVREMESIRRLLMELQSLARQYEEHVRSMN
+"""
+    records = parse_fasta_flexible(example_fasta)
+    print("Parsed records:", len(records))
+    rec = records[0]
+    sanitized = sanitize_sequence_with_log(rec["seq"])
+    print("Sanitization notes:", sanitized["notes"], "issues:", sanitized["issues"])
+    analyzed = analyze_single({"header": rec["header"], "seq": sanitized["seq"]})
+    print("Header:", analyzed["header"])
+    print("Length:", analyzed["length"], "MW (Da):", f"{analyzed['molecularWeight']:.2f}")
+    print("pI:", f"{analyzed['pI']:.2f}", "GRAVY:", f"{analyzed['gravy']:.3f}", "Instability:", f"{analyzed['instability']:.2f}")
+    print("E280 reduced / cystines:", analyzed["extinction"]["reduced"], analyzed["extinction"]["cystines"])
+    print("Number of features found:", len(analyzed["features"]))
+    # print first 10 features
+    for f in analyzed["features"][:10]:
+        print(f" - {f['name']} [{f['category']}] {f['start']+1}..{f['end']+1} match={f.get('match')}")
